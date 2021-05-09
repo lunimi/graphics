@@ -1,14 +1,19 @@
-#include "cgmath.h"		// slee's simple math library
-#include "cgut.h"		// slee's OpenGL utility
+#include "cgmath.h"        // slee's simple math library
+#define STB_IMAGE_IMPLEMENTATION
+#include "cgut.h"        // slee's OpenGL utility
 #include "trackball.h"	// virtual trackball
 #include "map.h"
 #include "character.h"
+#include "light.h"
+#include "skybox.h"
 
 //*************************************
 // global constants
 static const char*	window_name = "cgbase - trackball";
 static const char*	vert_shader_path = "../bin/shaders/trackball.vert";
 static const char*	frag_shader_path = "../bin/shaders/trackball.frag";
+static const char*  skybox_image_path = "../bin/images/at-the-river.jpg";
+uint				NUM_TESS = 40;
 
 //*************************************
 // common structures
@@ -26,6 +31,14 @@ struct camera
 	mat4	projection_matrix;
 };
 
+struct material_t
+{
+	vec4	ambient = vec4(0.2f, 0.2f, 0.2f, 1.0f);
+	vec4	diffuse = vec4(0.8f, 0.8f, 0.8f, 1.0f);
+	vec4	specular = vec4(0.6f, 0.6f, 0.3f, 1.0f);
+	float	shininess = 1000.0f;
+};
+
 //*************************************
 // window objects
 GLFWwindow*	window = nullptr;
@@ -35,12 +48,16 @@ ivec2		window_size = cg_default_window_size(); // initial window size
 // OpenGL objects
 GLuint	program	= 0;	// ID holder for GPU program
 GLuint	vertex_array = 0;	// ID holder for vertex array object
+GLuint	skyVertex = 0;
+GLuint	skybox_texture = 0;
 
 //*************************************
 // global variables
 int		frame = 0;				// index of rendering frames
+
 // holder of vertices and indices of a unit circle
 std::vector<vertex>	unit_block_vertices;	// host-side vertices
+std::vector<vertex> skybox_vertices;
 Map			map;
 Character	crt(&map,vec2(2,2));
 bool	b_key_right;
@@ -49,6 +66,10 @@ bool	b_key_left;
 // scene objects
 camera		cam;
 trackball	tb;
+light_t		sunlight;
+material_t	material;
+
+
 
 //*************************************
 void update(float t)
@@ -73,16 +94,35 @@ void update(float t)
 	GLint uloc;
 	uloc = glGetUniformLocation( program, "view_matrix" );			if(uloc>-1) glUniformMatrix4fv( uloc, 1, GL_TRUE, cam.view_matrix );
 	uloc = glGetUniformLocation( program, "projection_matrix" );	if(uloc>-1) glUniformMatrix4fv( uloc, 1, GL_TRUE, cam.projection_matrix );
+
+	//setup texture
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, skybox_texture);
+	glUniform1i(glGetUniformLocation(program, "TEX"), 0);
 }
 
 void render()
 {
+	float theta = 0.0005f * frame;	//sunlight rotate
+	sunlight.position.x = 25.0f * (float)sin(theta);
+	sunlight.position.y = 25.0f * (float)abs(cos(theta));
+	// setup sunlight properties
+	glUniform4fv(glGetUniformLocation(program, "light_position"), 1, sunlight.position);
+	glUniform4fv(glGetUniformLocation(program, "Ia"), 1, sunlight.ambient);
+	glUniform4fv(glGetUniformLocation(program, "Id"), 1, sunlight.diffuse);
+	glUniform4fv(glGetUniformLocation(program, "Is"), 1, sunlight.specular);
+
+	// setup little lights properties
+	
 	// clear screen (with background color) and clear depth buffer
 	glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
 
 	// notify GL that we use our own program
 	glUseProgram( program );
 
+	glBindVertexArray(vertex_array);
+
+	glUniform1i(glGetUniformLocation(program, "mode"), 0);
 	// build the model matrix for map
 	for (int i = 0; i < MAP_WIDTH; i++) {
 		for (int j = 0; j < MAP_HEIGHT; j++) {
@@ -105,6 +145,40 @@ void render()
 	// per-circle draw calls
 	glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, nullptr);
 
+	//build skybox
+	glBindVertexArray(skyVertex);
+	glUniform1i(glGetUniformLocation(program, "mode"), 1);
+	mat4 model_matrix_sky = mat4::translate(crt.position.x, crt.position.y, 0)*
+							mat4::rotate(vec3(1,0,0),-PI/2)*
+							mat4::scale(vec3(15.0f));
+	uloc = glGetUniformLocation(program, "model_matrix");			if (uloc > -1) glUniformMatrix4fv(uloc, 1, GL_TRUE, model_matrix_sky);
+	// per-circle draw calls
+	glDrawElements(GL_TRIANGLES, NUM_TESS * (NUM_TESS + 1) * 6, GL_UNSIGNED_INT, nullptr);
+
+
+	glUniform1i(glGetUniformLocation(program, "NUM_LIGHT"), NUM_LIGHT);
+	int index = 0;
+	char string[20] = "light_position2[0]";
+	char string2[20] = "Ia2[0]";
+	char string3[20] = "Id2[0]";
+	char string4[20] = "Is2[0]";
+	for (auto& l : lights) {
+
+		glUniform4fv(glGetUniformLocation(program, string), 1, l.position);
+		glUniform4fv(glGetUniformLocation(program, string2), 1, l.ambient);
+		glUniform4fv(glGetUniformLocation(program, string3), 1, l.diffuse);
+		glUniform4fv(glGetUniformLocation(program, string4), 1, l.specular);
+		string[16] ++;
+		string2[4]++;
+		string3[4]++;
+		string4[4]++;
+	}
+
+	// setup material properties
+	glUniform4fv(glGetUniformLocation(program, "Ka"), 1, material.ambient);
+	glUniform4fv(glGetUniformLocation(program, "Kd"), 1, material.diffuse);
+	glUniform4fv(glGetUniformLocation(program, "Ks"), 1, material.specular);
+	glUniform1f(glGetUniformLocation(program, "shininess"), material.shininess);
 
 	// swap front and back buffers, and display to screen
 	glfwSwapBuffers( window );
@@ -163,6 +237,46 @@ void motion( GLFWwindow* window, double x, double y )
 	cam.view_matrix = tb.update( npos );
 }
 
+void update_vertex_buffer_sky(const std::vector<vertex>& vertices)
+{
+	static GLuint vertex_buffer = 0;	// ID holder for vertex buffer
+	static GLuint index_buffer = 0;		// ID holder for index buffer
+
+	// clear and create new buffers
+	if (vertex_buffer)	glDeleteBuffers(1, &vertex_buffer);	vertex_buffer = 0;
+	if (index_buffer)	glDeleteBuffers(1, &index_buffer);	index_buffer = 0;
+
+	// check exceptions
+	if (vertices.empty()) { printf("[error] vertices is empty.\n"); return; }
+
+	// create buffers
+	std::vector<uint> indices;
+	for (uint k = 0; k < NUM_TESS * (NUM_TESS + 1); k++)
+	{
+		indices.push_back(k);	// the origin
+		indices.push_back(k + NUM_TESS+1);
+		indices.push_back(k + NUM_TESS );
+
+		indices.push_back(k);	// the origin
+		indices.push_back(k  + 1);
+		indices.push_back(k + NUM_TESS + 1);
+	}
+
+	// generation of vertex buffer: use vertices as it is
+	glGenBuffers(1, &vertex_buffer);
+	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(vertex) * vertices.size(), &vertices[0], GL_STATIC_DRAW);
+
+	// geneation of index buffer
+	glGenBuffers(1, &index_buffer);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, index_buffer);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(uint) * indices.size(), &indices[0], GL_STATIC_DRAW);
+
+	if (skyVertex) glDeleteVertexArrays(1, &skyVertex);
+	skyVertex = cg_create_vertex_array(vertex_buffer, index_buffer);
+	if (!skyVertex) { printf("%s(): failed to create vertex aray\n", __func__); return; }
+}
+
 void update_vertex_buffer(const std::vector<vertex>& vertices)
 {
 	static GLuint vertex_buffer = 0;	// ID holder for vertex buffer
@@ -214,14 +328,18 @@ bool user_init()
 
 	map.create();
 
+	skybox_vertices = std::move(create_sphere_vertices(NUM_TESS));
+	update_vertex_buffer_sky(skybox_vertices);
+	
+
 	// define the position of four corner vertices
 	unit_block_vertices = std::move(create_block_vertices());
 
 	// create vertex buffer
 	update_vertex_buffer(unit_block_vertices);
-
-	glBindVertexArray(vertex_array);
-
+	
+	skybox_texture = cg_create_texture(skybox_image_path, true);
+	
 
 	return true;
 }

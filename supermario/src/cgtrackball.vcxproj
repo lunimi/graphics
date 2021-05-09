@@ -61,7 +61,9 @@
     <ClInclude Include="map.h" />
     <ClInclude Include="cgmath.h" />
     <ClInclude Include="cgut.h" />
+    <ClInclude Include="skybox.h" />
     <ClInclude Include="trackball.h" />
+    <ClInclude Include="light.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\bin\shaders\trackball.frag" />
