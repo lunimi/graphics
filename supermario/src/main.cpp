@@ -1,19 +1,18 @@
-#include "cgmath.h"        // slee's simple math library
+#include "cgmath.h"		// slee's simple math library
 #define STB_IMAGE_IMPLEMENTATION
-#include "cgut.h"        // slee's OpenGL utility
-#include "trackball.h"	// virtual trackball
+#include "cgut.h"		// slee's OpenGL utility
 #include "map.h"
 #include "character.h"
+#include "gun.h"
 #include "light.h"
 #include "skybox.h"
+#include "title.h"
 
 //*************************************
 // global constants
 static const char*	window_name = "cgbase - trackball";
 static const char*	vert_shader_path = "../bin/shaders/trackball.vert";
 static const char*	frag_shader_path = "../bin/shaders/trackball.frag";
-static const char*  skybox_image_path = "../bin/images/at-the-river.jpg";
-uint				NUM_TESS = 40;
 
 //*************************************
 // common structures
@@ -28,6 +27,7 @@ struct camera
 	float	aspect;
 	float	dnear = 1.0f;
 	float	dfar = 1000.0f;
+
 	mat4	projection_matrix;
 };
 
@@ -48,28 +48,27 @@ ivec2		window_size = cg_default_window_size(); // initial window size
 // OpenGL objects
 GLuint	program	= 0;	// ID holder for GPU program
 GLuint	vertex_array = 0;	// ID holder for vertex array object
-GLuint	skyVertex = 0;
 GLuint	skybox_texture = 0;
+GLuint	title_texture = 0;
 
 //*************************************
 // global variables
 int		frame = 0;				// index of rendering frames
-
 // holder of vertices and indices of a unit circle
 std::vector<vertex>	unit_block_vertices;	// host-side vertices
-std::vector<vertex> skybox_vertices;
-Map			map;
-Character	crt(&map,vec2(2,2));
-bool	b_key_right;
-bool	b_key_left;
+Map map(new_map);
+Character	crt(&map,vec2(1,3));
+Gun			gun(&crt, 0);
+std::list<Enemy> enemy_list;
+
+bool	b_key_fire = false;
+bool	b_key_right = false;
+bool	b_key_left = false;
 //*************************************
 // scene objects
 camera		cam;
-trackball	tb;
 light_t		sunlight;
 material_t	material;
-
-
 
 //*************************************
 void update(float t)
@@ -84,11 +83,48 @@ void update(float t)
 	else if (b_key_left) {
 		crt.move_left();
 	}
-
-	cam.eye = vec3(crt.position + vec2(3, 2), 20);
-	cam.at = vec3(crt.position + vec2(3, 2), 0);
-	cam.view_matrix = mat4::look_at(cam.eye, cam.at, cam.up);
+	
 	crt.update(float(t), b_key_left || b_key_right);
+	gun.trigger(&b_key_fire, t);
+
+	// build bullets
+	for (std::list<Bullet>::iterator it = bullet_instances.begin(); it != bullet_instances.end(); it++) {
+		bool destroy = false;
+		it->update(t);
+		Block* bp = map.block(it->position);
+		if (bp != 0) // bp is not null;
+		{
+			destroy = bp->prop->destroy_bullet;
+			if (bp->prop->max_hp > 0) {
+				bp->hit(it->prop->block_dmg);
+			}
+		}
+		for (std::list<Enemy>::iterator eit = enemy_list.begin(); eit != enemy_list.end(); eit++) {
+			if (eit->hitbox.collid(it->position - eit->position)) {
+				if (eit->hit(it->prop->dmg, it->direction))
+				{
+					destroy = true; //적들이 총알에 맞았을 때
+					break;
+				}
+			}
+		}
+		if (it->life <= 0 || destroy) {
+			bullet_instances.erase(it);
+		}
+	}
+	for (std::list<Enemy>::iterator it = enemy_list.begin(); it != enemy_list.end(); it++) {
+		if (it->hitbox.collid(it->position - crt.position)) {
+			crt.hit(it->damage, it->position - crt.position);
+		}
+		it->update(t, true);
+		if (!(it->alive)) {
+			enemy_list.erase(it);
+		}
+	}
+	
+	cam.eye = vec3(crt.position.x, 8, 20);
+	cam.at = vec3((crt.position.x + cam.at.x) / 2,7,0);
+	cam.view_matrix = mat4::look_at(cam.eye, cam.at, cam.up);
 
 	// update uniform variables in vertex/fragment shaders
 	GLint uloc;
@@ -98,11 +134,17 @@ void update(float t)
 	//setup texture
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, skybox_texture);
-	glUniform1i(glGetUniformLocation(program, "TEX"), 0);
+	glUniform1i(glGetUniformLocation(program, "TEX_skybox"), 0);
+
+	glActiveTexture(GL_TEXTURE1);
+	glBindTexture(GL_TEXTURE_2D, title_texture);
+	glUniform1i(glGetUniformLocation(program, "TEX_title"), 1);
 }
 
 void render()
 {
+	//printf("player: %f %f\n", crt.position.x, crt.position.y);
+
 	float theta = 0.0005f * frame;	//sunlight rotate
 	sunlight.position.x = 25.0f * (float)sin(theta);
 	sunlight.position.y = 25.0f * (float)abs(cos(theta));
@@ -112,8 +154,7 @@ void render()
 	glUniform4fv(glGetUniformLocation(program, "Id"), 1, sunlight.diffuse);
 	glUniform4fv(glGetUniformLocation(program, "Is"), 1, sunlight.specular);
 
-	// setup little lights properties
-	
+
 	// clear screen (with background color) and clear depth buffer
 	glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
 
@@ -121,41 +162,75 @@ void render()
 	glUseProgram( program );
 
 	glBindVertexArray(vertex_array);
-
 	glUniform1i(glGetUniformLocation(program, "mode"), 0);
+	// build bullets
+	std::list<Bullet>::iterator it;
+	for (it = bullet_instances.begin(); it != bullet_instances.end(); it++) {
+		mat4 model_matrix = mat4::translate(it->position.x, it->position.y, 0) * mat4::scale(0.2f,0.2f,0.2f);
+
+		GLint uloc;
+		uloc = glGetUniformLocation(program, "model_matrix");			if (uloc > -1) glUniformMatrix4fv(uloc, 1, GL_TRUE, model_matrix);
+		glDrawElements(GL_TRIANGLES, 3*4*6, GL_UNSIGNED_INT, nullptr);
+	}
+
+	GLint uloc;
+	mat4 model_matrix;
 	// build the model matrix for map
 	for (int i = 0; i < MAP_WIDTH; i++) {
 		for (int j = 0; j < MAP_HEIGHT; j++) {
-			if (map.map[i][j] == 1) {
-				mat4 model_matrix = mat4::translate(float(i), float(j), 0);
-
-				GLint uloc;
-				uloc = glGetUniformLocation(program, "model_matrix");			if (uloc > -1) glUniformMatrix4fv(uloc, 1, GL_TRUE, model_matrix);
-
-				// per-circle draw calls
-				glDrawElements(GL_TRIANGLES, 36 , GL_UNSIGNED_INT, nullptr);
+			int block_id = map.map[i][j].prop->block_id;
+			if (block_id > 0) {
+				Block* bp = &map.map[i][j];
+				mat4 translate_matrix = mat4::translate(float(i), float(j), 0);
+				mat4 scale_matrix = mat4::scale(1);
+				switch (block_id) {
+				case 2:
+				case 5://wood & spike
+					scale_matrix = mat4::scale(1,1,float(bp->hp) / bp->prop->max_hp);
+					break;
+				default://wall
+					break;
+				}
+				model_matrix = translate_matrix * scale_matrix;
+				uloc = glGetUniformLocation(program, "model_matrix");
+				if (uloc > -1) glUniformMatrix4fv(uloc, 1, GL_TRUE, model_matrix);
+				glDrawElements(GL_TRIANGLES, 3 * 4 * 6, GL_UNSIGNED_INT, nullptr);
+				
 			}
 		}
 	}
 
 	// build character model
-	mat4 model_matrix = mat4::translate(crt.position.x, crt.position.y, 0);
-	GLint uloc;
-	uloc = glGetUniformLocation(program, "model_matrix");			if (uloc > -1) glUniformMatrix4fv(uloc, 1, GL_TRUE, model_matrix);
-	// per-circle draw calls
-	glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, nullptr);
+	if (crt.invinc_t <= 0 || int(crt.invinc_t*10) % 2 == 0) {
+		model_matrix = mat4::translate(crt.position.x - crt.hitbox.width() / 2, crt.position.y - crt.hitbox.height() / 2, 0) * mat4::scale(crt.hitbox.width(), crt.hitbox.height(),0.1f);
+		uloc = glGetUniformLocation(program, "model_matrix");			if (uloc > -1) glUniformMatrix4fv(uloc, 1, GL_TRUE, model_matrix);
+		glDrawElements(GL_TRIANGLES, 3 * 4 * 6, GL_UNSIGNED_INT, nullptr);
+	}
+	for (std::list<Enemy>::iterator it = enemy_list.begin(); it != enemy_list.end(); it++) {
+		model_matrix = mat4::translate(it->position.x - it->hitbox.width() / 2, it->position.y - it->hitbox.height() / 2, 0) * mat4::scale(it->hitbox.width(), it->hitbox.height(), 0.1f);
+		uloc = glGetUniformLocation(program, "model_matrix");			if (uloc > -1) glUniformMatrix4fv(uloc, 1, GL_TRUE, model_matrix);
+		glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, nullptr);
+	}
 
-	//build skybox
+	//----build skybox
 	glBindVertexArray(skyVertex);
 	glUniform1i(glGetUniformLocation(program, "mode"), 1);
-	mat4 model_matrix_sky = mat4::translate(crt.position.x, crt.position.y, 0)*
-							mat4::rotate(vec3(1,0,0),-PI/2)*
-							mat4::scale(vec3(15.0f));
+	mat4 model_matrix_sky = mat4::translate(crt.position.x, 5, 0) *
+		mat4::rotate(vec3(1, 0, 0), -PI / 2) *
+		mat4::scale(vec3(20.0f));
 	uloc = glGetUniformLocation(program, "model_matrix");			if (uloc > -1) glUniformMatrix4fv(uloc, 1, GL_TRUE, model_matrix_sky);
-	// per-circle draw calls
 	glDrawElements(GL_TRIANGLES, NUM_TESS * (NUM_TESS + 1) * 6, GL_UNSIGNED_INT, nullptr);
 
+	//----build title
+	glBindVertexArray(titleVertex);
+	glUniform1i(glGetUniformLocation(program, "mode"), 2);
+	mat4 model_matrix_title = mat4::translate(crt.position.x - 6.5f, crt.position.y - 0.0f, 5) *
+		mat4::scale(vec3(0.8f));
+	if (title_onoff == 0)	model_matrix_title *= mat4::translate(vec3(0,-20,0));
+	uloc = glGetUniformLocation(program, "model_matrix");			if (uloc > -1) glUniformMatrix4fv(uloc, 1, GL_TRUE, model_matrix_title);
+	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr);
 
+	//light source effect
 	glUniform1i(glGetUniformLocation(program, "NUM_LIGHT"), NUM_LIGHT);
 	int index = 0;
 	char string[20] = "light_position2[0]";
@@ -207,15 +282,27 @@ void keyboard( GLFWwindow* window, int key, int scancode, int action, int mods )
 	{
 		if (key == GLFW_KEY_ESCAPE || key == GLFW_KEY_Q)	glfwSetWindowShouldClose(window, GL_TRUE);
 		else if (key == GLFW_KEY_H || key == GLFW_KEY_F1)	print_help();
-		else if (key == GLFW_KEY_HOME)					cam = camera();
-
-		else if (key == GLFW_KEY_A) b_key_left = true;
-		else if (key == GLFW_KEY_D) b_key_right = true;
+		else if (key == GLFW_KEY_HOME)		cam = camera();
+		else if (key == GLFW_KEY_K)		crt.hit(1,vec2(5,5));
+		else if (key == GLFW_KEY_A)
+		{
+			b_key_left = true;
+		}
+		else if (key == GLFW_KEY_D)
+		{
+			b_key_right = true;
+		}
 		else if (key == GLFW_KEY_W || key == GLFW_KEY_SPACE) crt.jump();
+		else if (key == GLFW_KEY_J)							b_key_fire = true;
+		else if (key == GLFW_KEY_1)	gun.swap_gun(0);
+		else if (key == GLFW_KEY_2)	gun.swap_gun(1);
+		else if (key == GLFW_KEY_3)	gun.swap_gun(2);
+		else if (key == GLFW_KEY_4)	gun.swap_gun(3);
 	}
 	if (action == GLFW_RELEASE) {
 		if (key == GLFW_KEY_A) b_key_left = false;
-		else if (key == GLFW_KEY_D) b_key_right = false;
+		if (key == GLFW_KEY_D) b_key_right = false;
+		if (key == GLFW_KEY_J) b_key_fire = false;
 	}
 }
 
@@ -223,58 +310,16 @@ void mouse( GLFWwindow* window, int button, int action, int mods )
 {
 	if(button==GLFW_MOUSE_BUTTON_LEFT)
 	{
-		dvec2 pos; glfwGetCursorPos(window,&pos.x,&pos.y);
-		vec2 npos = cursor_to_ndc( pos, window_size );
-		if(action==GLFW_PRESS)			tb.begin( cam.view_matrix, npos );
-		else if(action==GLFW_RELEASE)	tb.end();
+		dvec2 pos; glfwGetCursorPos(window, &pos.x, &pos.y);
+		printf("%f, %f, title : %d\n", pos.x, pos.y, title_onoff);
+		if (pos.x > 360 && pos.y > 240)	title_onoff = 0;
+		//if (action == GLFW_PRESS);
+		//else if (action == GLFW_RELEASE);
 	}
 }
 
 void motion( GLFWwindow* window, double x, double y )
 {
-	if(!tb.is_tracking()) return;
-	vec2 npos = cursor_to_ndc( dvec2(x,y), window_size );
-	cam.view_matrix = tb.update( npos );
-}
-
-void update_vertex_buffer_sky(const std::vector<vertex>& vertices)
-{
-	static GLuint vertex_buffer = 0;	// ID holder for vertex buffer
-	static GLuint index_buffer = 0;		// ID holder for index buffer
-
-	// clear and create new buffers
-	if (vertex_buffer)	glDeleteBuffers(1, &vertex_buffer);	vertex_buffer = 0;
-	if (index_buffer)	glDeleteBuffers(1, &index_buffer);	index_buffer = 0;
-
-	// check exceptions
-	if (vertices.empty()) { printf("[error] vertices is empty.\n"); return; }
-
-	// create buffers
-	std::vector<uint> indices;
-	for (uint k = 0; k < NUM_TESS * (NUM_TESS + 1); k++)
-	{
-		indices.push_back(k);	// the origin
-		indices.push_back(k + NUM_TESS+1);
-		indices.push_back(k + NUM_TESS );
-
-		indices.push_back(k);	// the origin
-		indices.push_back(k  + 1);
-		indices.push_back(k + NUM_TESS + 1);
-	}
-
-	// generation of vertex buffer: use vertices as it is
-	glGenBuffers(1, &vertex_buffer);
-	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(vertex) * vertices.size(), &vertices[0], GL_STATIC_DRAW);
-
-	// geneation of index buffer
-	glGenBuffers(1, &index_buffer);
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, index_buffer);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(uint) * indices.size(), &indices[0], GL_STATIC_DRAW);
-
-	if (skyVertex) glDeleteVertexArrays(1, &skyVertex);
-	skyVertex = cg_create_vertex_array(vertex_buffer, index_buffer);
-	if (!skyVertex) { printf("%s(): failed to create vertex aray\n", __func__); return; }
 }
 
 void update_vertex_buffer(const std::vector<vertex>& vertices)
@@ -289,16 +334,7 @@ void update_vertex_buffer(const std::vector<vertex>& vertices)
 	if (vertices.empty()) { printf("[error] vertices is empty.\n"); return; }
 
 	// create buffers
-	std::vector<uint> indices = 
-	{
-		0,1,2,1,3,2,
-		6,7,5,6,5,4,
-		2,6,0,6,4,0,
-		3,5,7,3,1,5,
-		7,6,3,3,6,2,
-		1,0,5,0,4,5
-	};
-
+	std::vector<uint> indices = block_indices;
 	
 	// generation of vertex buffer: use vertices as it is
 	glGenBuffers(1, &vertex_buffer);
@@ -324,23 +360,25 @@ bool user_init()
 	// init GL states
 	glClearColor( 39/255.0f, 40/255.0f, 34/255.0f, 1.0f );	// set clear color
 	glEnable( GL_CULL_FACE );								// turn on backface culling
-	glEnable( GL_DEPTH_TEST );								// turn on depth tests
-
-	map.create();
-
-	skybox_vertices = std::move(create_sphere_vertices(NUM_TESS));
-	update_vertex_buffer_sky(skybox_vertices);
-	
+	glEnable( GL_DEPTH_TEST );								// turn on depth tests	
 
 	// define the position of four corner vertices
 	unit_block_vertices = std::move(create_block_vertices());
+	skybox_vertices = std::move(create_sphere_vertices(NUM_TESS));
+	title_vertices = std::move(create_title_vertices());
 
 	// create vertex buffer
 	update_vertex_buffer(unit_block_vertices);
-	
-	skybox_texture = cg_create_texture(skybox_image_path, true);
-	
+	update_vertex_buffer_sky(skybox_vertices);
+	update_vertex_buffer_title(title_vertices);
 
+	skybox_texture = cg_create_texture(skybox_image_path, true);
+	title_texture = cg_create_texture(title_image_path, true);
+
+	//enemy_list.push_back(Enemy(&map, &crt, vec2(18, 3)));
+	//enemy_list.push_back(Enemy(&map, &crt, vec2(34, 6)));
+	//enemy_list.push_back(Enemy(&map, &crt, vec2(29, 6)));
+	//enemy_list.push_back(Enemy(&map, &crt, vec2(8, 3)));
 	return true;
 }
 

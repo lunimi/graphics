@@ -22,9 +22,6 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="trackball.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="cgmath.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -37,10 +34,16 @@
     <ClInclude Include="character.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="light.h">
+    <ClInclude Include="gun.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="skybox.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="title.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="light.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
