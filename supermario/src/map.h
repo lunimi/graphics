@@ -1,15 +1,19 @@
 #pragma once
+static const char* blocks_image_path = "../bin/images/blocks.png";
+
 static const uint MAP_WIDTH = 100;	// ∏  ≥–¿Ã
 static const uint MAP_HEIGHT = 50;	// ∏  ≥Ù¿Ã
+
+
 int new_map[MAP_WIDTH][MAP_HEIGHT] = {
-		{1,1,1,1,1,1,1}, //0
+		{1,1,1,2,3,4,5}, //0
 		{1,1,1,0,1,1,1},
-		{1,1,1,0,1,1,1},
-		{1,1,1,0,1,1,1},
-		{1,1,1,0,1,1,1},
-		{1,1,1,0,1,1,1},
-		{1,1,1,0,1,1,1},
-		{1,1,1,0,1,1,1},
+		{1,1,2,0,2,1,1},
+		{1,1,3,0,3,1,1},
+		{1,1,4,0,4,4,4},
+		{1,1,4,0,4,4,4},
+		{1,1,4,0,4,4,4},
+		{1,1,5,0,5,5,5},
 		{1,1,1,0,1,1,1},
 		{1,1,1,0,1,1,1},
 		{1,1,1,0,1,1,1},//10
@@ -108,7 +112,7 @@ public:
 std::vector<uint> block_indices = {};
 std::vector<vertex> create_block_vertices()
 {
-	vec2 tc[] = { {0,0},{1,0},{0,1},{1,1} };
+	vec2 tc[] = { {0.f,0.f},{0.1f,0.0f},{0.0f,0.1f},{0.1f,0.1f} };
 	vec3 normal[] = { {0,0,-1},{0,0,1},{-1,0,0},{1,0,0}, {0,1,0}, {0,-1,0} };
 	vec3 n_sample[] = {
 		vec3(-1,-1,-1), vec3(1,-1,-1), vec3(-1,1,-1), vec3(1,1,-1), // front
@@ -121,7 +125,7 @@ std::vector<vertex> create_block_vertices()
 	std::vector<vertex> v = {};
 	for (int i = 0; i < 6; i++) {
 		for (int j = 0; j < 4; j++) {
-			v.push_back({ (n_sample[i*4 + j] + vec3(1,1,0)) / 2, normal[i], tc[j] });
+			v.push_back({ (n_sample[i*4 + j] + vec3(1,1,0)) / 2, normal[i], tc[j]+vec2(0.1f*i,0) });
 		}
 		block_indices.push_back(i * 4);
 		block_indices.push_back(i * 4 + 1);

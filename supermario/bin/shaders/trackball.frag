@@ -15,8 +15,10 @@ in vec2 tc;
 out vec4 fragColor;
 
 uniform int		mode;
+uniform int		block_id;
 uniform sampler2D	TEX_skybox;
 uniform sampler2D	TEX_title;
+uniform sampler2D	TEX_blocks;
 //light
 uniform mat4	view_matrix;
 uniform float	shininess;
@@ -27,10 +29,14 @@ uniform vec4	Ka, Kd, Ks;
 
 vec4 phong(vec3 l, vec3 n, vec3 h, vec4 Kd, vec4 ila, vec4 ild, vec4 ils)
 {
+	
 	vec4 Ira = Ka * ila;									// ambient reflection
-	vec4 Ird = max(Kd * dot(l, n) * ild, 0.0);					// diffuse reflection
-	vec4 Irs = max(Ks * pow(dot(h, n), shininess) * ils, 0.0);	// specular reflection
-
+	vec4 Ird = max(Kd * dot(l, n) * ild, 0.0);				// diffuse reflection
+	vec4 Irs;
+	if (block_id == 4)
+		Irs = max(Ks * pow(dot(h, n), shininess*10.f) * ils, 0.0);	// specular reflection
+	else
+		Irs = max(Ks * pow(dot(h, n), shininess) * ils, 0.0);
 	return Ira + Ird + Irs;
 }
 
@@ -45,8 +51,10 @@ void main()
 		vec3 l = normalize(lpos.xyz - (lpos.a == 0.0 ? vec3(0) : p));	// lpos.a==0 means directional light
 		vec3 v = normalize(-p);		// eye-epos = vec3(0)-epos
 		vec3 h = normalize(l + v);	// the halfway vector
-
-		//fragColor = phong(l, n, h, Kd,Ia,Id,Is);
+		//sunlight effect
+		fragColor = phong(l, n, h, Kd,Ia,Id,Is);
+		
+		//lights effect
 		float len = 10.f;
 		for (int i = 0; i < NUM_LIGHT; i++) {
 			lpos = view_matrix * light_position2[i];
@@ -56,12 +64,15 @@ void main()
 			h = normalize(l + v);
 			fragColor +=  phong(l, n, h, Kd, Ia2[i], Id2[i], Is2[i]) / (len *len);
 		}
-		fragColor *= vec4(normalize(norm), 1.0);
+		fragColor *= texture(TEX_blocks, tc+vec2(0,0.1f* (block_id-1)));//vec4(normalize(norm), 1.0);
+		if(block_id==4)	fragColor.a *= 0.1f;
 		break;
-	case 1://skybox
+	case 1:
+		//skybox
 		fragColor = texture(TEX_skybox, tc);
 		break;
-	case 2://title
+	case 2:
+		//title
 		fragColor = texture(TEX_title, tc);
 		break;
 	default:

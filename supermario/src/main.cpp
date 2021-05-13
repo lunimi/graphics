@@ -50,6 +50,7 @@ GLuint	program	= 0;	// ID holder for GPU program
 GLuint	vertex_array = 0;	// ID holder for vertex array object
 GLuint	skybox_texture = 0;
 GLuint	title_texture = 0;
+GLuint	blocks_texture = 0;
 
 //*************************************
 // global variables
@@ -139,6 +140,10 @@ void update(float t)
 	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, title_texture);
 	glUniform1i(glGetUniformLocation(program, "TEX_title"), 1);
+
+	glActiveTexture(GL_TEXTURE2);
+	glBindTexture(GL_TEXTURE_2D, blocks_texture);
+	glUniform1i(glGetUniformLocation(program, "TEX_blocks"), 2);
 }
 
 void render()
@@ -161,6 +166,18 @@ void render()
 	// notify GL that we use our own program
 	glUseProgram( program );
 
+	GLint uloc;
+	mat4 model_matrix;
+	//----build skybox
+	glBindVertexArray(skyVertex);
+	glUniform1i(glGetUniformLocation(program, "mode"), 1);
+	mat4 model_matrix_sky = mat4::translate(crt.position.x, 5, 0) *
+		mat4::rotate(vec3(1, 0, 0), -PI / 2) *
+		mat4::scale(vec3(20.0f));
+	uloc = glGetUniformLocation(program, "model_matrix");			if (uloc > -1) glUniformMatrix4fv(uloc, 1, GL_TRUE, model_matrix_sky);
+	glDrawElements(GL_TRIANGLES, NUM_TESS * (NUM_TESS + 1) * 6, GL_UNSIGNED_INT, nullptr);
+
+
 	glBindVertexArray(vertex_array);
 	glUniform1i(glGetUniformLocation(program, "mode"), 0);
 	// build bullets
@@ -173,8 +190,6 @@ void render()
 		glDrawElements(GL_TRIANGLES, 3*4*6, GL_UNSIGNED_INT, nullptr);
 	}
 
-	GLint uloc;
-	mat4 model_matrix;
 	// build the model matrix for map
 	for (int i = 0; i < MAP_WIDTH; i++) {
 		for (int j = 0; j < MAP_HEIGHT; j++) {
@@ -193,6 +208,7 @@ void render()
 				}
 				model_matrix = translate_matrix * scale_matrix;
 				uloc = glGetUniformLocation(program, "model_matrix");
+				glUniform1i(glGetUniformLocation(program, "block_id"), block_id);
 				if (uloc > -1) glUniformMatrix4fv(uloc, 1, GL_TRUE, model_matrix);
 				glDrawElements(GL_TRIANGLES, 3 * 4 * 6, GL_UNSIGNED_INT, nullptr);
 				
@@ -211,15 +227,6 @@ void render()
 		uloc = glGetUniformLocation(program, "model_matrix");			if (uloc > -1) glUniformMatrix4fv(uloc, 1, GL_TRUE, model_matrix);
 		glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, nullptr);
 	}
-
-	//----build skybox
-	glBindVertexArray(skyVertex);
-	glUniform1i(glGetUniformLocation(program, "mode"), 1);
-	mat4 model_matrix_sky = mat4::translate(crt.position.x, 5, 0) *
-		mat4::rotate(vec3(1, 0, 0), -PI / 2) *
-		mat4::scale(vec3(20.0f));
-	uloc = glGetUniformLocation(program, "model_matrix");			if (uloc > -1) glUniformMatrix4fv(uloc, 1, GL_TRUE, model_matrix_sky);
-	glDrawElements(GL_TRIANGLES, NUM_TESS * (NUM_TESS + 1) * 6, GL_UNSIGNED_INT, nullptr);
 
 	//----build title
 	glBindVertexArray(titleVertex);
@@ -360,8 +367,11 @@ bool user_init()
 	// init GL states
 	glClearColor( 39/255.0f, 40/255.0f, 34/255.0f, 1.0f );	// set clear color
 	glEnable( GL_CULL_FACE );								// turn on backface culling
+	
 	glEnable( GL_DEPTH_TEST );								// turn on depth tests	
-
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glCullFace(GL_BACK);
 	// define the position of four corner vertices
 	unit_block_vertices = std::move(create_block_vertices());
 	skybox_vertices = std::move(create_sphere_vertices(NUM_TESS));
@@ -374,6 +384,7 @@ bool user_init()
 
 	skybox_texture = cg_create_texture(skybox_image_path, true);
 	title_texture = cg_create_texture(title_image_path, true);
+	blocks_texture = cg_create_texture(blocks_image_path, true, GL_REPEAT,GL_NEAREST);
 
 	//enemy_list.push_back(Enemy(&map, &crt, vec2(18, 3)));
 	//enemy_list.push_back(Enemy(&map, &crt, vec2(34, 6)));
