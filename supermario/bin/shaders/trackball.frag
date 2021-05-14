@@ -19,6 +19,7 @@ uniform int		block_id;
 uniform sampler2D	TEX_skybox;
 uniform sampler2D	TEX_title;
 uniform sampler2D	TEX_blocks;
+uniform sampler2D	TEX_blocks_opacity;
 //light
 uniform mat4	view_matrix;
 uniform float	shininess;
@@ -30,13 +31,18 @@ uniform vec4	Ka, Kd, Ks;
 vec4 phong(vec3 l, vec3 n, vec3 h, vec4 Kd, vec4 ila, vec4 ild, vec4 ils)
 {
 	
-	vec4 Ira = Ka * ila;									// ambient reflection
-	vec4 Ird = max(Kd * dot(l, n) * ild, 0.0);				// diffuse reflection
-	vec4 Irs;
-	if (block_id == 4)
-		Irs = max(Ks * pow(dot(h, n), shininess*10.f) * ils, 0.0);	// specular reflection
-	else
+	vec4 Ira,Ird,Irs;
+	if (block_id == 4) {
+		Ira = 0.5f*Ka * ila;											// ambient reflection
+		Ird = 0.7f*max(Kd * dot(l, n) * ild, 0.0);					// diffuse reflection
+		Irs = max(Ks * pow(dot(h, n), shininess*5.f) * ils, 0.0);	// specular reflection
+	}
+	else {
+		Ira = Ka * ila;
+		Ird = max(Kd * dot(l, n) * ild, 0.0);
 		Irs = max(Ks * pow(dot(h, n), shininess) * ils, 0.0);
+	}
+		
 	return Ira + Ird + Irs;
 }
 
@@ -65,7 +71,8 @@ void main()
 			fragColor +=  phong(l, n, h, Kd, Ia2[i], Id2[i], Is2[i]) / (len *len);
 		}
 		fragColor *= texture(TEX_blocks, tc+vec2(0,0.1f* (block_id-1)));//vec4(normalize(norm), 1.0);
-		if(block_id==4)	fragColor.a *= 0.1f;
+		//if(block_id==4)	fragColor.a *= 0.15f;
+		fragColor.a *= texture(TEX_blocks_opacity, tc + vec2(0, 0.1f * (block_id - 1))).x;
 		break;
 	case 1:
 		//skybox

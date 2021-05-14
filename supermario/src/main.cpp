@@ -51,6 +51,7 @@ GLuint	vertex_array = 0;	// ID holder for vertex array object
 GLuint	skybox_texture = 0;
 GLuint	title_texture = 0;
 GLuint	blocks_texture = 0;
+GLuint	blocks_opacity_texture = 0;
 
 //*************************************
 // global variables
@@ -144,6 +145,10 @@ void update(float t)
 	glActiveTexture(GL_TEXTURE2);
 	glBindTexture(GL_TEXTURE_2D, blocks_texture);
 	glUniform1i(glGetUniformLocation(program, "TEX_blocks"), 2);
+
+	glActiveTexture(GL_TEXTURE3);
+	glBindTexture(GL_TEXTURE_2D, blocks_opacity_texture);
+	glUniform1i(glGetUniformLocation(program, "TEX_blocks_opacity"), 3);
 }
 
 void render()
@@ -233,7 +238,7 @@ void render()
 	glUniform1i(glGetUniformLocation(program, "mode"), 2);
 	mat4 model_matrix_title = mat4::translate(crt.position.x - 6.5f, crt.position.y - 0.0f, 5) *
 		mat4::scale(vec3(0.8f));
-	if (title_onoff == 0)	model_matrix_title *= mat4::translate(vec3(0,-20,0));
+	if (title_onoff == 0)	model_matrix_title *= mat4::translate(vec3(0,0,-200));
 	uloc = glGetUniformLocation(program, "model_matrix");			if (uloc > -1) glUniformMatrix4fv(uloc, 1, GL_TRUE, model_matrix_title);
 	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr);
 
@@ -385,6 +390,7 @@ bool user_init()
 	skybox_texture = cg_create_texture(skybox_image_path, true);
 	title_texture = cg_create_texture(title_image_path, true);
 	blocks_texture = cg_create_texture(blocks_image_path, true, GL_REPEAT,GL_NEAREST);
+	blocks_opacity_texture = cg_create_texture(blocks_opacity_image_path, true);
 
 	//enemy_list.push_back(Enemy(&map, &crt, vec2(18, 3)));
 	//enemy_list.push_back(Enemy(&map, &crt, vec2(34, 6)));

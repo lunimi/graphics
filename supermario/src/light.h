@@ -7,7 +7,7 @@ struct light_t
 {
 	vec4	position = vec4(25.0f, 25.0f, 25.0f, 1.0f);   // directional light
 	vec4	ambient = vec4(0.2f, 0.2f, 0.2f, 1.0f);
-	vec4	diffuse = vec4(0.8f, 0.8f, 0.8f, 1.0f);
+	vec4	diffuse = vec4(0.7f, 0.7f, 0.5f, 1.0f);
 	vec4	specular = vec4(0.3f, 0.3f, 0.1f, 1.0f);
 };
 
